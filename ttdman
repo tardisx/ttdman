@@ -19,7 +19,6 @@ my $clients  = {};
 my @log      = ();
 my $metadata = {};
 
-
 my $openttd = AnyEvent::Subprocess->new(
     delegates => [ 'StandardHandles', 'CompletionCondvar' ],
     code      => sub {
@@ -118,10 +117,20 @@ sub process_line {
 
 get '/' => sub {
   my $self = shift;
-  $self->stash('log', \@log);
-  $self->stash('clients', $clients);
   $self->stash('metadata', $metadata);
   $self->render('index');
+};
+
+get '/log' => sub {
+  my $self = shift;
+  $self->stash('log', \@log);
+  $self->render('log');
+};
+
+get '/clients' => sub {
+  my $self = shift;
+  $self->stash('clients', $clients);
+  $self->render('clients');
 };
 
 get '/pause' => sub {
@@ -151,6 +160,33 @@ __DATA__
 % layout 'default';
 % title 'Welcome';
 
+<h4>Meta</h4>
+<table>
+  <tr>
+    <td>PID</td>
+    <td><%= $metadata->{pid} ? $metadata->{pid} : '[not running]' %></td>
+  </tr>
+</table>
+
+<script>
+$(document).ready(function() {
+  $("#logcontainer").load("/log");
+  $("#clientscontainer").load("/clients");
+  var refreshId = setInterval(function() {
+    $("#logcontainer").load('/log');
+    $("#clientscontainer").load("/clients");
+  }, 1000);
+  $.ajaxSetup({ cache: false });
+});
+</script>
+
+<div id="clientscontainer">
+</div>
+
+<div id="logcontainer">
+</div>
+
+@@ clients.html.ep
 <h4>Clients</h4>
 <table>
 <tr>
@@ -166,14 +202,7 @@ __DATA__
 % }
 </table>
 
-<h4>Meta</h4>
-<table>
-  <tr>
-    <td>PID</td>
-    <td><%= $metadata->{pid} ? $metadata->{pid} : '[not running]' %></td>
-  </tr>
-</table>
-
+@@ log.html.ep
 <h4>Log</h4>
 
 <table>
@@ -188,8 +217,12 @@ __DATA__
 @@ layouts/default.html.ep
 <!DOCTYPE html>
 <html>
-  <head><title><%= title %></title></head>
+  <head>
+    <title><%= title %></title>
+    <script type="text/javascript" src="/js/jquery.js"></script>          
+  </head>
   <body>
+    <h2>ttdman</h2>
     <p>[<a href="/pause">pause</a> | <a href="/unpause">unpause</a>]</p>
     <%= content %>
   </body>
