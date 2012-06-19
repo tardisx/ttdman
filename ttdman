@@ -1,0 +1,196 @@
+#!/usr/bin/env perl
+use Mojolicious::Lite;
+
+use AE;
+use AnyEvent::Subprocess;
+use Time::Duration;
+
+
+my $schedule = {
+  '23:23' => [ \&save ],
+  '23:24' => [ \&unpause ],
+  '23:25' => [ \&pause ],
+  '23:26' => [ \&save ],
+  '*'     => [ \&request_status ],
+};
+my $last_run = '';
+
+my $clients  = {};
+my @log      = ();
+my $metadata = {};
+
+
+my $openttd = AnyEvent::Subprocess->new(
+    delegates => [ 'StandardHandles', 'CompletionCondvar' ],
+    code      => sub {
+        exec '/usr/games/openttd -D -g foobar.sav';
+    },
+);
+
+my $run = $openttd->run;
+$metadata->{pid} = $run->child_pid;
+my $openttd_cv  = $run->delegate('completion_condvar');
+
+$run->delegate('stderr')->handle->on_read( \&server_output );
+$run->delegate('stdout')->handle->on_read( \&server_output );
+
+# setup schedule processor
+my $scheduler = AE::timer 3, 1, \&run_schedule;
+
+sub run_schedule {
+  my $now = sprintf("%02d:%02d", (localtime())[2], (localtime())[1]);  
+  foreach my $time (keys %$schedule) {
+    if ( $now ne $last_run && ( $time eq '*' || $time eq $now) ) {
+      $last_run = $now;
+      foreach my $item ( @{ $schedule->{$time} } ) {
+        &{ $item };
+      }
+    }
+  }
+}
+
+sub request_status {
+  $run->delegate('stdin')->handle->push_write("status\n");
+}
+
+sub save { 
+  $run->delegate('stdin')->handle->push_write("save\n");
+}
+sub pause { 
+  $run->delegate('stdin')->handle->push_write("pause\n");
+}
+sub unpause { 
+  $run->delegate('stdin')->handle->push_write("unpause\n");
+}
+
+
+
+sub server_output {
+  my $handle = shift;
+  my @lines  = split /\n/, $handle->rbuf;
+  $handle->rbuf = undef;
+  foreach (@lines) {
+    process_line($_);
+  }
+
+}
+
+sub process_line {
+  my $line = shift;
+
+  # Client #3  name: 'Justin'  status: 'active'  frame-lag:   1  company: 1  IP: 192.168.33.131
+  if ($line =~ /^Client #(\d+)\s+name: '(.*?)'.*company:\s+(\d+).*IP:\s+(\S+)/) {
+    my $client_num = $1;
+    my $name       = $2;
+    my $company    = $3;
+    my $ip         = $4;
+    my $ts         = time();
+
+    # Add them:
+    $clients->{$client_num} = [ $ts, $name, $company, $ip ];
+
+    # cycle out old client data
+    foreach my $client_num (keys %$clients) {
+      if ($clients->{$client_num}->[0] < (time() - 120)) {
+        delete $clients->{$client_num};
+      }
+    }
+  }
+
+  # â*** Justin has joined the game (Client #3) at ./ttd_man line 69.
+  if ($line =~ /joined the game/) {
+    request_status();
+  }
+  
+  # dbg: [net] Closed client connection 2
+  if ($line =~ /Closed client connection\s+(\d+)/) {
+    my $client_gone = $1;
+    delete $clients->{$client_gone};
+  }
+
+  # Add it to the log
+  push @log, [time(), $line];
+
+  # Nuke old entries
+  shift @log while (@log > 200);
+}
+
+
+get '/' => sub {
+  my $self = shift;
+  $self->stash('log', \@log);
+  $self->stash('clients', $clients);
+  $self->stash('metadata', $metadata);
+  $self->render('index');
+};
+
+get '/pause' => sub {
+  my $self = shift;
+  $run->delegate('stdin')->handle->push_write("say \"Game paused manually via web interface\"\n");
+  pause();
+  $self->redirect_to('/');
+};
+
+get '/unpause' => sub {
+  my $self = shift;
+  $run->delegate('stdin')->handle->push_write("say \"Game unpaused manually via web interface\"\n");
+  unpause();
+  $self->redirect_to('/');
+};
+
+app->start;
+
+warn "waiting for quit to occur";
+my $done = $openttd_cv->recv;
+# we should never get here (the web server blocks), but...
+$metadata->{pid} = undef;
+
+__DATA__
+
+@@ index.html.ep
+% layout 'default';
+% title 'Welcome';
+
+<h4>Clients</h4>
+<table>
+<tr>
+<th>id</th><td>name</td><td>company</td><td>IP</td>
+</tr>
+% foreach (keys %$clients) {
+<tr>
+<td><%= $_ %></td>
+<td><%= $clients->{$_}->[1] %></td>
+<td><%= $clients->{$_}->[2] %></td>
+<td><%= $clients->{$_}->[3] %></td>
+</tr>
+% }
+</table>
+
+<h4>Meta</h4>
+<table>
+  <tr>
+    <td>PID</td>
+    <td><%= $metadata->{pid} ? $metadata->{pid} : '[not running]' %></td>
+  </tr>
+</table>
+
+<h4>Log</h4>
+
+<table>
+% foreach my $entry (reverse @$log) {
+<tr>
+<th><%= Time::Duration::concise(Time::Duration::ago(time - $entry->[0])) %></th>
+<td><%= $entry->[1] %></td>
+</tr>
+% }
+</table>
+
+@@ layouts/default.html.ep
+<!DOCTYPE html>
+<html>
+  <head><title><%= title %></title></head>
+  <body>
+    <p>[<a href="/pause">pause</a> | <a href="/unpause">unpause</a>]</p>
+    <%= content %>
+  </body>
+</html>
