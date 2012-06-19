@@ -37,7 +37,7 @@ my $openttd_cv  = $run->delegate('completion_condvar');
 $run->delegate('stderr')->handle->on_read( \&server_output );
 $run->delegate('stdout')->handle->on_read( \&server_output );
 $run->delegate('stdin')->handle->no_delay(1);
-$run->delegate('stdin')->handle->autocork(1);
+$run->delegate('stdin')->handle->autocork(0);
 
 # setup schedule processor
 my $scheduler = AE::timer 3, 1, \&run_schedule;
