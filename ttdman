@@ -22,6 +22,10 @@ my $metadata = {};
 my $openttd = AnyEvent::Subprocess->new(
     delegates => [ 'StandardHandles', 'CompletionCondvar' ],
     code      => sub {
+        use IO::Handle;
+        STDIN->autoflush(1); 
+        STDOUT->autoflush(1); 
+        STDERR->autoflush(1); 
         exec '/usr/games/openttd -D -g foobar.sav';
     },
 );
@@ -32,6 +36,8 @@ my $openttd_cv  = $run->delegate('completion_condvar');
 
 $run->delegate('stderr')->handle->on_read( \&server_output );
 $run->delegate('stdout')->handle->on_read( \&server_output );
+$run->delegate('stdin')->handle->no_delay(1);
+$run->delegate('stdin')->handle->autocork(1);
 
 # setup schedule processor
 my $scheduler = AE::timer 3, 1, \&run_schedule;
@@ -49,17 +55,16 @@ sub run_schedule {
 }
 
 sub request_status {
-  $run->delegate('stdin')->handle->push_write("status\n");
+  $run->delegate('stdin')->handle->push_write("status\r\n");
 }
-
 sub save { 
   $run->delegate('stdin')->handle->push_write("save\n");
 }
 sub pause { 
-  $run->delegate('stdin')->handle->push_write("pause\n");
+  $run->delegate('stdin')->handle->push_write("\r\npause\r\n");
 }
 sub unpause { 
-  $run->delegate('stdin')->handle->push_write("unpause\n");
+  $run->delegate('stdin')->handle->push_write("\r\nunpause\r\n");
 }
 
 
@@ -135,14 +140,14 @@ get '/clients' => sub {
 
 get '/pause' => sub {
   my $self = shift;
-  $run->delegate('stdin')->handle->push_write("say \"Game paused manually via web interface\"\n");
+  $run->delegate('stdin')->handle->push_write("\nsay \"Game paused manually via web interface\"\n");
   pause();
   $self->redirect_to('/');
 };
 
 get '/unpause' => sub {
   my $self = shift;
-  $run->delegate('stdin')->handle->push_write("say \"Game unpaused manually via web interface\"\n");
+  $run->delegate('stdin')->handle->push_write("\nsay \"Game unpaused manually via web interface\"\n");
   unpause();
   $self->redirect_to('/');
 };
