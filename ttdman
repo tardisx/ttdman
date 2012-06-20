@@ -25,10 +25,6 @@ my $dow = [ qw/Su Mo Tu We Th Fr Sa/ ];
 my $openttd = AnyEvent::Subprocess->new(
     delegates => [ 'StandardHandles', 'CompletionCondvar' ],
     code      => sub {
-        #use IO::Handle;
-        #STDIN->autoflush(1); 
-        #STDOUT->autoflush(1); 
-        #STDERR->autoflush(1); 
         exec '/usr/games/openttd -D -g foobar.sav';
     },
 );
@@ -39,8 +35,6 @@ my $openttd_cv  = $run->delegate('completion_condvar');
 
 $run->delegate('stderr')->handle->on_read( \&server_output );
 $run->delegate('stdout')->handle->on_read( \&server_output );
-# $run->delegate('stdin')->handle->no_delay(1);
-# $run->delegate('stdin')->handle->autocork(0);
 
 # setup schedule processor
 my $scheduler = AE::timer 3, 1, \&run_schedule;
