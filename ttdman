@@ -7,25 +7,26 @@ use Time::Duration;
 
 
 my $schedule = {
-  '11:51' => [ \&save ],
-  '11:52' => [ \&unpause ],
-  '11:53' => [ \&pause ],
-  '11:54' => [ \&save ],
+  '12:04' => [ \&save, \&unpause ],
+  '12:05' => [ \&pause ],
+  '12:06' => [ \&save ],
   '*'     => [ \&request_status ],
 };
-my $last_run = '';
+my $last_min = '';
 
 my $clients  = {};
 my @log      = ();
 my $metadata = {};
 
+my $buffer_defeat = "\r\n" x 2560;
+
 my $openttd = AnyEvent::Subprocess->new(
     delegates => [ 'StandardHandles', 'CompletionCondvar' ],
     code      => sub {
-        use IO::Handle;
-        STDIN->autoflush(1); 
-        STDOUT->autoflush(1); 
-        STDERR->autoflush(1); 
+        #use IO::Handle;
+        #STDIN->autoflush(1); 
+        #STDOUT->autoflush(1); 
+        #STDERR->autoflush(1); 
         exec '/usr/games/openttd -D -g foobar.sav';
     },
 );
@@ -44,11 +45,13 @@ my $scheduler = AE::timer 3, 1, \&run_schedule;
 
 sub run_schedule {
   my $now = sprintf("%02d:%02d", (localtime())[2], (localtime())[1]);  
+
+  return if ($now eq $last_min);
+  $last_min = $now;
+
   foreach my $time (keys %$schedule) {
-    if ( $now ne $last_run && ( $time eq '*' || $time eq $now) ) {
-      $last_run = $now;
+    if ( ($time eq '*' || $time eq $now) ) {
       foreach my $item ( @{ $schedule->{$time} } ) {
-        warn "executing $item";
         &{ $item };
       }
     }
@@ -56,18 +59,16 @@ sub run_schedule {
 }
 
 sub request_status {
-  $run->delegate('stdin')->handle->push_write("status\r\n");
+  $run->delegate('stdin')->handle->push_write("status${buffer_defeat}");
 }
 sub save { 
-  $run->delegate('stdin')->handle->push_write("save foobar\n");
+  $run->delegate('stdin')->handle->push_write("save foobar${buffer_defeat}");
 }
 sub pause { 
-  warn "pausing";
-  $run->delegate('stdin')->handle->push_write("\r\npause"."\r\n"x2560);
+  $run->delegate('stdin')->handle->push_write("\r\npause${buffer_defeat}");
 }
 sub unpause { 
-  warn "unpausing";
-  $run->delegate('stdin')->handle->push_write("\r\nunpause"."\r\n"x2560);
+  $run->delegate('stdin')->handle->push_write("\r\nunpause${buffer_defeat}");
 }
 
 sub server_output {
