@@ -7,10 +7,10 @@ use Time::Duration;
 
 
 my $schedule = {
-  '23:23' => [ \&save ],
-  '23:24' => [ \&unpause ],
-  '23:25' => [ \&pause ],
-  '23:26' => [ \&save ],
+  '11:51' => [ \&save ],
+  '11:52' => [ \&unpause ],
+  '11:53' => [ \&pause ],
+  '11:54' => [ \&save ],
   '*'     => [ \&request_status ],
 };
 my $last_run = '';
@@ -36,8 +36,8 @@ my $openttd_cv  = $run->delegate('completion_condvar');
 
 $run->delegate('stderr')->handle->on_read( \&server_output );
 $run->delegate('stdout')->handle->on_read( \&server_output );
-$run->delegate('stdin')->handle->no_delay(1);
-$run->delegate('stdin')->handle->autocork(0);
+# $run->delegate('stdin')->handle->no_delay(1);
+# $run->delegate('stdin')->handle->autocork(0);
 
 # setup schedule processor
 my $scheduler = AE::timer 3, 1, \&run_schedule;
@@ -48,6 +48,7 @@ sub run_schedule {
     if ( $now ne $last_run && ( $time eq '*' || $time eq $now) ) {
       $last_run = $now;
       foreach my $item ( @{ $schedule->{$time} } ) {
+        warn "executing $item";
         &{ $item };
       }
     }
@@ -58,16 +59,16 @@ sub request_status {
   $run->delegate('stdin')->handle->push_write("status\r\n");
 }
 sub save { 
-  $run->delegate('stdin')->handle->push_write("save\n");
+  $run->delegate('stdin')->handle->push_write("save foobar\n");
 }
 sub pause { 
-  $run->delegate('stdin')->handle->push_write("\r\npause\r\n");
+  warn "pausing";
+  $run->delegate('stdin')->handle->push_write("\r\npause"."\r\n"x2560);
 }
 sub unpause { 
-  $run->delegate('stdin')->handle->push_write("\r\nunpause\r\n");
+  warn "unpausing";
+  $run->delegate('stdin')->handle->push_write("\r\nunpause"."\r\n"x2560);
 }
-
-
 
 sub server_output {
   my $handle = shift;
@@ -76,7 +77,6 @@ sub server_output {
   foreach (@lines) {
     process_line($_);
   }
-
 }
 
 sub process_line {
