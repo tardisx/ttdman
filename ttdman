@@ -5,11 +5,11 @@ use AE;
 use AnyEvent::Subprocess;
 use Time::Duration;
 
-
 my $schedule = {
-  '12:04' => [ \&save, \&unpause ],
-  '12:05' => [ \&pause ],
-  '12:06' => [ \&save ],
+  '17:00 Mo,Tu,We,Th,Fr' => [ \&save,  \&unpause ],
+  '18:00 Mo,Tu,We,Th,Fr' => [ \&pause, \&save ],
+
+  # leave this one
   '*'     => [ \&request_status ],
 };
 my $last_min = '';
@@ -19,6 +19,8 @@ my @log      = ();
 my $metadata = {};
 
 my $buffer_defeat = "\r\n" x 2560;
+
+my $dow = [ qw/Su Mo Tu We Th Fr Sa/ ];
 
 my $openttd = AnyEvent::Subprocess->new(
     delegates => [ 'StandardHandles', 'CompletionCondvar' ],
@@ -45,14 +47,29 @@ my $scheduler = AE::timer 3, 1, \&run_schedule;
 
 sub run_schedule {
   my $now = sprintf("%02d:%02d", (localtime())[2], (localtime())[1]);  
+  my $today = $dow->[(localtime())[6]];
 
+  # only run a schedule item once a minute
   return if ($now eq $last_min);
   $last_min = $now;
 
   foreach my $time (keys %$schedule) {
-    if ( ($time eq '*' || $time eq $now) ) {
-      foreach my $item ( @{ $schedule->{$time} } ) {
-        &{ $item };
+
+    my ($sched_time, $sched_dows) = ('', []);
+    # time with possible DOW specification:
+    ($sched_time, $sched_dows) = $time =~ /^(\d{1,2}:\d\d)\s*([\w\s,]*)$/;
+    # asterisk (all seconds) with possible DOW specification:
+    ($sched_time, $sched_dows) = $time =~ /^(\*)\s*([\w\s,]*)$/ if (! $sched_time);
+
+    $sched_dows = [ split /\s*,\s*/, $sched_dows ];
+
+    # right time
+    if ( ($sched_time eq '*' || $sched_time eq $now) ) {
+      # check is the right dow
+      if (! @$sched_dows || (grep /$today/, @$sched_dows)) {
+        foreach my $item ( @{ $schedule->{$time} } ) {
+          &{ $item };
+        }
       }
     }
   }
@@ -100,6 +117,7 @@ sub process_line {
         delete $clients->{$client_num};
       }
     }
+    return; # don't log this further
   }
 
   # â*** Justin has joined the game (Client #3) at ./ttd_man line 69.
