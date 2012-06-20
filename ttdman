@@ -153,6 +153,12 @@ get '/unpause' => sub {
   $self->redirect_to('/');
 };
 
+get '/save' => sub {
+  my $self = shift;
+  save();
+  $self->redirect_to('/');
+};
+
 app->start;
 
 warn "waiting for quit to occur";
@@ -229,7 +235,9 @@ $(document).ready(function() {
   </head>
   <body>
     <h2>ttdman</h2>
-    <p>[<a href="/pause">pause</a> | <a href="/unpause">unpause</a>]</p>
+    <p>[<a href="/save">save</a> | 
+        <a href="/pause">pause</a> | 
+        <a href="/unpause">unpause</a>]</p>
     <%= content %>
   </body>
 </html>
