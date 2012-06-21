@@ -5,13 +5,28 @@ use AE;
 use AnyEvent::Subprocess;
 use Time::Duration;
 
+# the schedule lets us automate certain game actions.
+# the format is either an hh:mm time of day, or an 
+# asterisk (every minute), followed by an optional
+# comma separated list of the days of the week that
+# we run this schedule.
+
+# the example below unpauses the server for one hour
+# on thursdays and fridays.
+
+# there is not much error checking around the schedule
+# so take care when entering it.
+
 my $schedule = {
-  '17:00 Mo,Tu,We,Th,Fr' => [ \&save,  \&unpause ],
-  '18:00 Mo,Tu,We,Th,Fr' => [ \&pause, \&save ],
+  '17:00 Th,Fr' => [ \&save,  \&unpause ],
+  '18:00 Th,Fr' => [ \&pause, \&save ],
 
   # leave this one
   '*'     => [ \&request_status ],
 };
+
+# *** end of user-servicable components ***
+
 my $last_min = '';
 
 my $clients  = {};
@@ -22,6 +37,7 @@ my $buffer_defeat = "\r\n" x 2560;
 
 my $dow = [ qw/Su Mo Tu We Th Fr Sa/ ];
 
+# run the openttd server
 my $openttd = AnyEvent::Subprocess->new(
     delegates => [ 'StandardHandles', 'CompletionCondvar' ],
     code      => sub {
@@ -33,11 +49,12 @@ my $run = $openttd->run;
 $metadata->{pid} = $run->child_pid;
 my $openttd_cv  = $run->delegate('completion_condvar');
 
+# watch its output
 $run->delegate('stderr')->handle->on_read( \&server_output );
 $run->delegate('stdout')->handle->on_read( \&server_output );
 
 # setup schedule processor
-my $scheduler = AE::timer 3, 1, \&run_schedule;
+my $scheduler = AE::timer 3, 6, \&run_schedule;
 
 sub run_schedule {
   my $now = sprintf("%02d:%02d", (localtime())[2], (localtime())[1]);  
@@ -52,7 +69,7 @@ sub run_schedule {
     my ($sched_time, $sched_dows) = ('', []);
     # time with possible DOW specification:
     ($sched_time, $sched_dows) = $time =~ /^(\d{1,2}:\d\d)\s*([\w\s,]*)$/;
-    # asterisk (all seconds) with possible DOW specification:
+    # asterisk (every minute) with possible DOW specification:
     ($sched_time, $sched_dows) = $time =~ /^(\*)\s*([\w\s,]*)$/ if (! $sched_time);
 
     $sched_dows = [ split /\s*,\s*/, $sched_dows ];
@@ -69,6 +86,7 @@ sub run_schedule {
   }
 }
 
+# various commands to be sent to the server
 sub request_status {
   $run->delegate('stdin')->handle->push_write("status${buffer_defeat}");
 }
@@ -82,6 +100,7 @@ sub unpause {
   $run->delegate('stdin')->handle->push_write("\r\nunpause${buffer_defeat}");
 }
 
+# deal with output from the server
 sub server_output {
   my $handle = shift;
   my @lines  = split /\n/, $handle->rbuf;
@@ -91,6 +110,7 @@ sub server_output {
   }
 }
 
+# process a single line
 sub process_line {
   my $line = shift;
 
@@ -132,7 +152,7 @@ sub process_line {
   shift @log while (@log > 200);
 }
 
-
+# web server routes
 get '/' => sub {
   my $self = shift;
   $self->stash('metadata', $metadata);
@@ -175,7 +195,7 @@ app->start;
 
 warn "waiting for quit to occur";
 my $done = $openttd_cv->recv;
-# we should never get here (the web server blocks), but...
+# we should never get here (the app->start blocks), but...
 $metadata->{pid} = undef;
 
 __DATA__
